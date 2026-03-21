@@ -1,7 +1,7 @@
 /*******************************************************************
  * ZOIUDO VIDEO 2.0 
  * Autor da última atualização: Alexandre Nery
- * Data da Atualização: 28 de Fevereiro de 2026
+ * Data da Atualização: 20 de Març de 2026
  *
  * Baseado no projeto: ESP32-CAM-Video-Telegram (James Zahary)
  * Versão Base Utilizada: 8.9x
@@ -53,6 +53,8 @@
 // 5. CONFIGURAÇÕES LOCAIS E SEGURANÇA
 // ===================================================================
 #include "seguranca.h"  // Suas chaves, IDs e Tokens
+#include "LittleFS.h"
+#define USER_FILE "/users.txt"
 
 
 // =================================================================================
@@ -120,7 +122,7 @@ float speed_up_factor = 0.5;  // 0.5 = slow motion
 // 5. ESTADOS E FLAGS DO SISTEMA
 // =================================================================================
 bool sendTime = true;
-bool type = true;
+bool type = false;
 bool flashState = LOW;
 bool reboot_request = false;
 
@@ -395,94 +397,94 @@ void handleNewMessages(int numNewMessages) {
       bot.sendMessage(chat_id, welcome, "");
       Serial.println("Mudou o tipo de foto");
     } else if (text.startsWith("/add ")) {
-        String comando = text.substring(5);       // Remove o "/add "
-        int indiceEspaco = comando.indexOf(' ');  // Acha onde termina o ID e começa o nome
+      String comando = text.substring(5);       // Remove o "/add "
+      int indiceEspaco = comando.indexOf(' ');  // Acha onde termina o ID e começa o nome
 
-        if (indiceEspaco != -1) {
-          String id = comando.substring(0, indiceEspaco);
-          String nome = comando.substring(indiceEspaco + 1);
-          id.trim();  // Garante que não fiquem espaços inúteis
-          nome.trim();
+      if (indiceEspaco != -1) {
+        String id = comando.substring(0, indiceEspaco);
+        String nome = comando.substring(indiceEspaco + 1);
+        id.trim();  // Garante que não fiquem espaços inúteis
+        nome.trim();
 
-          addUser(id, nome, tam);
+        addUser(id, nome, tam);
+      } else {
+        bot.sendMessage(chat_id, "Erro! Use: /add ID NOME", "");
+      }
+    } else if (text.substring(0, 7) == "/remove") {  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+      removeUser(text, tam);
+    } else if (text.substring(0, 5) == "/time") {  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+      int time = atoi(text.substring(6).c_str());
+
+      if (time != 0) {
+        sendTime = true;
+        tempo = time * 60 * 1000;
+        Temp1.defiSP(tempo);
+        bot.sendMessage(chat_id, "Temporização definida para: " + String((tempo / 1000) / 60) + " minuto(s)\n", "");
+        allUsers();
+      } else {
+        sendTime = false;
+        tempo = 0;
+        bot.sendMessage(chat_id, "Temporização desativada", "");
+      }
+    }
+
+
+    else if (text == "/clip") {
+
+      Serial.println("Requisição de um novo video");
+
+      for (int j = 0; j < 4; j++) {
+        camera_fb_t* newfb = esp_camera_fb_get();
+        if (!newfb) {
+          Serial.println("Camera Capture Failed");
         } else {
-          bot.sendMessage(chat_id, "Erro! Use: /add ID NOME", "");
-        }
-      } else if (text.substring(0, 7) == "/remove") {  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        removeUser(text, tam);
-      } else if (text.substring(0, 5) == "/time") {  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        int time = atoi(text.substring(6).c_str());
-
-        if (time != 0) {
-          sendTime = true;
-          tempo = time * 60 * 1000;
-          Temp1.defiSP(tempo);
-          bot.sendMessage(chat_id, "Temporização definida para: " + String((tempo / 1000) / 60) + " minuto(s)\n", "");
-          allUsers();
-        } else {
-          sendTime = false;
-          tempo = 0;
-          bot.sendMessage(chat_id, "Temporização desativada", "");
+          Serial.print("Pic, len=");
+          Serial.print(newfb->len);
+          Serial.printf(", new fb %X\n", (long)newfb->buf);
+          esp_camera_fb_return(newfb);
+          delay(10);
         }
       }
 
-
-      else if (text == "/clip") {
-
-        Serial.println("Requisição de um novo video");
-
-        for (int j = 0; j < 4; j++) {
-          camera_fb_t* newfb = esp_camera_fb_get();
-          if (!newfb) {
-            Serial.println("Camera Capture Failed");
-          } else {
-            Serial.print("Pic, len=");
-            Serial.print(newfb->len);
-            Serial.printf(", new fb %X\n", (long)newfb->buf);
-            esp_camera_fb_return(newfb);
-            delay(10);
-          }
-        }
-
-        if (type) {
-          if (hora >= 6 && hora < 18) {
-            sendVideoTelegram();
-          } else {
-            sendVideoTelegram(1);
-          }
-        } else {
+      if (type) {
+        if (hora >= 6 && hora < 18) {
           sendVideoTelegram();
+        } else {
+          sendVideoTelegram(1);
         }
+      } else {
+        sendVideoTelegram();
       }
+    }
 
-      else if (text == "/start") {
-        String welcome = "ESP32Cam Telegram bot.\n\n";
-        welcome += "Bem-Vindo , " + from_name + "\n\n";
-        welcome += "Use os seguintes comandos para interagir com o Zoiudu \n\n";
-        welcome += "/status : Informaçoes de estados e usuarios \n\n";
-        // welcome += "/photo : Tirar uma nova foto \n\n";
-        welcome += "/caption: Tirar uma nova foto\n\n";
-        welcome += "/clip: short video clip\n";
-        welcome += "/type: Modo de tirar foto (sem flash ou com flash por horario)\n\n";
-        welcome += "/flash : Mudar o estado da led \n\n";
-        welcome += "/list : Lista todos os usuários permitidos \n\n";
-        welcome += "/time {minutos}: Muda o tempo de envio automatico de fotos (ex.: /time 10)\n\n";
-        welcome += "/add {chat_id} {nome_usuario}: Adição de um novo usuario (ex.: /add 1111111111 test) \n\n";
-        welcome += "/remove {id}: Remoção de um usuario (ex.: /remove 6) \n\n";
-        welcome += "/reboot : Reinicia o Esp32\n\n";
-        welcome += "\n Configure the clip\n";
-        welcome += "/enable: enable pir\n";
-        welcome += "/disable: disable pir\n";
-        welcome += "/enavi: enable avi\n";
-        welcome += "/disavi: disable avi\n";
-        welcome += "\n/fast: 25 fps - 3  sec - play .5x speed\n";
-        welcome += "/med: 8  fps - 10 sec - play 1x speed\n";
-        welcome += "/slow: 2  fps - 40 sec - play 5x speed\n\n";
-        welcome += "/start: start\n";
-        bot.sendMessage(chat_id, welcome, "Markdown");
-      } else {  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        bot.sendMessage(chat_id, "Comando não encontrado", "");
-      }
+    else if (text == "/start") {
+      String welcome = "ESP32Cam Telegram bot.\n\n";
+      welcome += "Bem-Vindo , " + from_name + "\n\n";
+      welcome += "Use os seguintes comandos para interagir com o Zoiudu \n\n";
+      welcome += "/status : Informaçoes de estados e usuarios \n\n";
+      // welcome += "/photo : Tirar uma nova foto \n\n";
+      welcome += "/caption: Tirar uma nova foto\n\n";
+      welcome += "/clip: short video clip\n";
+      welcome += "/type: Modo de tirar foto (sem flash ou com flash por horario)\n\n";
+      welcome += "/flash : Mudar o estado da led \n\n";
+      welcome += "/list : Lista todos os usuários permitidos \n\n";
+      welcome += "/time {minutos}: Muda o tempo de envio automatico de fotos (ex.: /time 10)\n\n";
+      welcome += "/add {chat_id} {nome_usuario}: Adição de um novo usuario (ex.: /add 1111111111 test) \n\n";
+      welcome += "/remove {id}: Remoção de um usuario (ex.: /remove 6) \n\n";
+      welcome += "/reboot : Reinicia o Esp32\n\n";
+      welcome += "\n Configure the clip\n";
+      welcome += "/enable: enable pir\n";
+      welcome += "/disable: disable pir\n";
+      welcome += "/enavi: enable avi\n";
+      welcome += "/disavi: disable avi\n";
+      welcome += "\n/fast: 25 fps - 3  sec - play .5x speed\n";
+      welcome += "/med: 8  fps - 10 sec - play 1x speed\n";
+      welcome += "/slow: 2  fps - 40 sec - play 5x speed\n\n";
+      welcome += "/start: start\n";
+      bot.sendMessage(chat_id, welcome, "Markdown");
+    } else {  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+      bot.sendMessage(chat_id, "Comando não encontrado", "");
+    }
   }
 }
 
@@ -513,6 +515,52 @@ String getDate() {
   }
 }
 
+void carregarUsuariosFlash() {
+  // 1. Se o arquivo não existir, preenche o primeiro slot e cria o arquivo
+  if (!LittleFS.exists(USER_FILE)) {
+    Serial.println("Arquivo não encontrado. Criando com Master...");
+    CHAT_ID[0] = chat_id_master; 
+    Nomes[0] = "Master"; // Ou o nome que preferir
+    salvarUsuariosFlash();   // Já cria o arquivo fisicamente
+    return;
+  }
+
+  // 2. Se o arquivo existe, lê os dados
+  File file = LittleFS.open(USER_FILE, FILE_READ);
+  int i = 0;
+  while (file.available() && i < 5) {
+    String linha = file.readStringUntil('\n');
+    linha.trim();
+    if (linha.length() > 0) {
+      int sep = linha.indexOf('|');
+      CHAT_ID[i] = linha.substring(0, sep);
+      Nomes[i] = linha.substring(sep + 1);
+      i++;
+    }
+  }
+  file.close();
+
+  // 3. Checagem final: Se por algum motivo o arquivo estava em branco
+  if (CHAT_ID[0] == "") {
+    CHAT_ID[0] = chat_id_master;
+    Nomes[0] = "Master";
+    salvarUsuariosFlash();
+  }
+}
+
+void salvarUsuariosFlash() {
+  File file = LittleFS.open(USER_FILE, FILE_WRITE);
+  if (!file) return;
+
+  int tam = NUMITEMS(CHAT_ID);
+  for (int i = 0; i < tam; i++) {
+    if (CHAT_ID[i] != "") {
+      // Salva no formato: ID|Nome
+      file.println(CHAT_ID[i] + "|" + Nomes[i]);
+    }
+  }
+  file.close();
+}
 
 void allUsers() {
 
@@ -557,18 +605,34 @@ void listUsers(int tam) {
   bot.sendMessage(chat_id, "\n\n" + permitidos, "");
 }
 
+// void removeUser(String text, int tam) {
+//   if (atoi(text.substring(8).c_str()) < tam && atoi(text.substring(8).c_str()) >= 0) {
+//     CHAT_ID[atoi(text.substring(8).c_str())] = "";
+//     Nomes[atoi(text.substring(8).c_str())] = "";
+//     bot.sendMessage(chat_id, "\nID: " + text.substring(8) + " removido", "");
+//   } else {
+//     bot.sendMessage(chat_id, "\nID: " + text.substring(8) + " não identificado", "");
+//   }
+// }
 void removeUser(String text, int tam) {
-  if (atoi(text.substring(8).c_str()) < tam && atoi(text.substring(8).c_str()) >= 0) {
-    CHAT_ID[atoi(text.substring(8).c_str())] = "";
-    Nomes[atoi(text.substring(8).c_str())] = "";
-    bot.sendMessage(chat_id, "\nID: " + text.substring(8) + " removido", "");
-  } else {
-    bot.sendMessage(chat_id, "\nID: " + text.substring(8) + " não identificado", "");
+  int index = atoi(text.substring(8).c_str());
+  
+  if (index < tam && index >= 0) {
+    // Impede remover o ID 0 se ele for o único ou for o master
+    if (index == 0 && CHAT_ID[index] == chat_id_master) {
+      bot.sendMessage(chat_id, "Erro: Não é permitido remover o usuário Master!", "");
+      return;
+    }
+
+    CHAT_ID[index] = "";
+    Nomes[index] = "";
+    
+    salvarUsuariosFlash();
+    bot.sendMessage(chat_id, "ID: " + String(index) + " removido", "");
   }
 }
 
 void addUser(String id, String nome, int tam) {
-  // id já vem como "-1008987965848" ou "8987965848"
 
   if (id == "") {
     bot.sendMessage(chat_id, "ID inválido!", "");
@@ -587,6 +651,7 @@ void addUser(String id, String nome, int tam) {
       CHAT_ID[k] = id;
       Nomes[k] = nome;
 
+      salvarUsuariosFlash();
       Serial.println("Adicionado: " + id + " - " + nome);
       bot.sendMessage(chat_id, "Adicionado com sucesso!\nNome: " + nome + "\nID: " + id, "");
       return;
@@ -796,23 +861,247 @@ static const frameSizeStruct frameSizeData[] = {
 #define AVIOFFSET 240  // AVI main header length
 
 uint8_t buf[AVIOFFSET] = {
-  0x52,  0x49,  0x46,  0x46,  0xD8,  0x01,  0x0E,  0x00,  0x41,  0x56,  0x49,  0x20,  0x4C,  0x49,  0x53,  0x54,
-  0xD0,  0x00,  0x00,  0x00,  0x68,  0x64,  0x72,  0x6C,  0x61,  0x76,  0x69,  0x68,  0x38,  0x00,  0x00,  0x00,
-  0xA0,  0x86,  0x01,  0x00,  0x80,  0x66,  0x01,  0x00,  0x00,  0x00,  0x00,  0x00,  0x10,  0x00,  0x00,  0x00,
-  0x64,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x01,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,
-  0x80,  0x02,  0x00,  0x00,  0xe0,  0x01,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,
-  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x4C,  0x49,  0x53,  0x54,  0x84,  0x00,  0x00,  0x00,
-  0x73,  0x74,  0x72,  0x6C,  0x73,  0x74,  0x72,  0x68,  0x30,  0x00,  0x00,  0x00,  0x76,  0x69,  0x64,  0x73,
-  0x4D,  0x4A,  0x50,  0x47,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,
-  0x01,  0x00,  0x00,  0x00,  0x01,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x0A,  0x00,  0x00,  0x00,
-  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x73,  0x74,  0x72,  0x66,
-  0x28,  0x00,  0x00,  0x00,  0x28,  0x00,  0x00,  0x00,  0x80,  0x02,  0x00,  0x00,  0xe0,  0x01,  0x00,  0x00,
-  0x01,  0x00,  0x18,  0x00,  0x4D,  0x4A,  0x50,  0x47,  0x00,  0x84,  0x03,  0x00,  0x00,  0x00,  0x00,  0x00,
-  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x00,  0x49,  0x4E,  0x46,  0x4F,  
-  0x10,  0x00,  0x00,  0x00,  0x6A,  0x61,  0x6D,  0x65,  0x73,  0x7A,  0x61,  0x68,  0x61,  0x72,  0x79,  0x20,  
-  0x76,  0x38,  0x38,  0x20,  0x4C,  0x49,  0x53,  0x54,  0x00,  0x01,  0x0E,  0x00,  0x6D,  0x6F,  0x76,  0x69,
+  0x52,
+  0x49,
+  0x46,
+  0x46,
+  0xD8,
+  0x01,
+  0x0E,
+  0x00,
+  0x41,
+  0x56,
+  0x49,
+  0x20,
+  0x4C,
+  0x49,
+  0x53,
+  0x54,
+  0xD0,
+  0x00,
+  0x00,
+  0x00,
+  0x68,
+  0x64,
+  0x72,
+  0x6C,
+  0x61,
+  0x76,
+  0x69,
+  0x68,
+  0x38,
+  0x00,
+  0x00,
+  0x00,
+  0xA0,
+  0x86,
+  0x01,
+  0x00,
+  0x80,
+  0x66,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x10,
+  0x00,
+  0x00,
+  0x00,
+  0x64,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x80,
+  0x02,
+  0x00,
+  0x00,
+  0xe0,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x4C,
+  0x49,
+  0x53,
+  0x54,
+  0x84,
+  0x00,
+  0x00,
+  0x00,
+  0x73,
+  0x74,
+  0x72,
+  0x6C,
+  0x73,
+  0x74,
+  0x72,
+  0x68,
+  0x30,
+  0x00,
+  0x00,
+  0x00,
+  0x76,
+  0x69,
+  0x64,
+  0x73,
+  0x4D,
+  0x4A,
+  0x50,
+  0x47,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x73,
+  0x74,
+  0x72,
+  0x66,
+  0x28,
+  0x00,
+  0x00,
+  0x00,
+  0x28,
+  0x00,
+  0x00,
+  0x00,
+  0x80,
+  0x02,
+  0x00,
+  0x00,
+  0xe0,
+  0x01,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x18,
+  0x00,
+  0x4D,
+  0x4A,
+  0x50,
+  0x47,
+  0x00,
+  0x84,
+  0x03,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x4E,
+  0x46,
+  0x4F,
+  0x10,
+  0x00,
+  0x00,
+  0x00,
+  0x6A,
+  0x61,
+  0x6D,
+  0x65,
+  0x73,
+  0x7A,
+  0x61,
+  0x68,
+  0x61,
+  0x72,
+  0x79,
+  0x20,
+  0x76,
+  0x38,
+  0x38,
+  0x20,
+  0x4C,
+  0x49,
+  0x53,
+  0x54,
+  0x00,
+  0x01,
+  0x0E,
+  0x00,
+  0x6D,
+  0x6F,
+  0x76,
+  0x69,
 };
-
 
 //
 // Writes an uint32_t in Big Endian at current file position
@@ -1181,21 +1470,46 @@ static void IRAM_ATTR PIR_ISR(void* arg) {
   }
 }
 
-void WifiMobile() {
+// void WifiMobile() {
 
+//   Serial.println("Ponto de Acesso Iniciado");
+
+//   WiFiManager wm;
+
+//   wm.resetSettings();
+
+//   bool res;
+//   res = wm.autoConnect("Zoiudu", "teste@123");  // password protected ap
+
+//   if (!res) {
+//     Serial.println("Failed to connect");
+//   } else {
+//     Serial.println("connected...yeey :)");
+//   }
+// }
+
+void WifiMobile() {
   Serial.println("Ponto de Acesso Iniciado");
 
   WiFiManager wm;
 
-  wm.resetSettings();
+  // Define o tempo limite do portal (em segundos)
+  // 5 minutos = 300 segundos
+  wm.setConfigPortalTimeout(300);
+
+  // wm.resetSettings(); // Remova ou comente se quiser que ele salve a senha
 
   bool res;
-  res = wm.autoConnect("Zoiudu", "teste@123");  // password protected ap
+  // O autoConnect agora vai retornar 'false' se o tempo de 5 min acabar
+  res = wm.autoConnect("Zoiudu", "teste@123");
 
   if (!res) {
-    Serial.println("Failed to connect");
+    Serial.println("Tempo esgotado ou falha na conexão. Reiniciando...");
+    delay(1000);
+    ESP.restart();  // Reinicia o ESP32/ESP8266
   } else {
-    Serial.println("connected...yeey :)");
+    Serial.println("Conectado com sucesso!");
+    Bot_lasttime = millis();  // Opcional: marca o tempo de início para o seu bot
   }
 }
 
@@ -1296,6 +1610,10 @@ void setup() {
     }
   }
 
+  if(!LittleFS.begin(true)) Serial.println("Erro LittleFS");
+  
+  carregarUsuariosFlash(); // Carrega o que estiver salvo
+
   bool wifi_status = init_wifi();
 
   bot.longPoll = 5;
@@ -1345,25 +1663,53 @@ void loop() {
     send_the_video();
   }
 
-  if (millis() > Bot_lasttime + Bot_mtbs) {
+  // if (millis() > Bot_lasttime + Bot_mtbs) {
 
+  //   if (WiFi.status() != WL_CONNECTED) {
+  //     Serial.println("***** WiFi reconnect *****");
+  //     WiFi.reconnect();
+  //     delay(5000);
+  //     if (WiFi.status() != WL_CONNECTED) {
+  //       Serial.println("***** WiFi rerestart *****");
+  //       init_wifi();
+  //     }
+  //   }
+
+  //   int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+  //   while (numNewMessages) {
+  //     //Serial.println("got response");
+  //     handleNewMessages(numNewMessages);
+  //     numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+  //   }
+  //   Bot_lasttime = millis();
+  // }
+
+  if (millis() - Bot_lasttime > Bot_mtbs) {
+
+    // 1. Verificação de Conexão (Sem travar o loop)
     if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("***** WiFi reconnect *****");
-      WiFi.reconnect();
-      delay(5000);
-      if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("***** WiFi rerestart *****");
-        init_wifi();
-      }
+      Serial.println("***** WiFi desconectado! Tentando reconectar... *****");
+
+      // Tenta reconectar em background
+      WiFi.begin();
+
+      // Em vez de delay(5000), apenas pulamos esta execução do bot
+      // O ESP continuará tentando conectar enquanto o loop roda outras funções
+      Bot_lasttime = millis();
+      return;  // Sai do IF para tentar na próxima varredura
     }
 
+    // 2. Só processa o Bot se houver internet
+    Serial.println("Checando mensagens do Telegram...");
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
 
     while (numNewMessages) {
-      //Serial.println("got response");
       handleNewMessages(numNewMessages);
       numNewMessages = bot.getUpdates(bot.last_message_received + 1);
     }
+
+    // 3. Atualiza o tempo da última varredura com sucesso
     Bot_lasttime = millis();
   }
 
