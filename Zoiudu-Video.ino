@@ -1,7 +1,7 @@
 /*******************************************************************
  * ZOIUDO VIDEO 2.0 
  * Autor da última atualização: Alexandre Nery
- * Data da Atualização: 20 de Març de 2026
+ * Data da Atualização: 24 de Março de 2026
  *
  * Baseado no projeto: ESP32-CAM-Video-Telegram (James Zahary)
  * Versão Base Utilizada: 8.9x
@@ -109,6 +109,9 @@ Tempora Temp1, timeFlash, reboot;
 static const char vernum[] = "pir-cam 8.9";
 String devstr = "Zoiudu";
 
+int pirPin = 2;   // PIR Out pin
+int pirStat = 0;  // PIR status
+
 int max_frames = 150;
 framesize_t configframesize = FRAMESIZE_VGA;
 int framesize = FRAMESIZE_VGA;
@@ -123,6 +126,7 @@ float speed_up_factor = 0.5;  // 0.5 = slow motion
 // =================================================================================
 bool sendTime = true;
 bool type = false;
+bool detec = false;
 bool flashState = LOW;
 bool reboot_request = false;
 
@@ -205,13 +209,16 @@ bool setupCamera() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
+  // config.xclk_freq_hz = 10000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
   if (psramFound()) {
+    Serial.print("\n Achou PSRAM");
     config.frame_size = configframesize;
     config.jpeg_quality = qualityconfig;
     config.fb_count = 4;
   } else {
+    Serial.print("\n Nao Achou PSRAM");
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 12;
     config.fb_count = 1;
@@ -337,6 +344,7 @@ void handleNewMessages(int numNewMessages) {
       stat += "\nCapacidade de Usuários: " + String(tam) + "\n";
       stat += "flash: " + String(flashState ? "On" : "Off") + "\n";
       stat += "Temporização: " + (tempo == 0 ? "Desativada" : String((tempo / 1000) / 60) + " minuto(s)\n");
+      stat += "Deteccao de Presenca: " + String(detec ? "Ativado\n" : "Desativado\n");
       stat += "Tipo de fotos: " + String(type ? "Com flash por horário\n" : "Sem flash\n");
       stat += "Data: " + getDate();
 
@@ -390,13 +398,25 @@ void handleNewMessages(int numNewMessages) {
 
     else if (text == "/list") {  /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
       listUsers(tam);
-    } else if (text == "/type") {
+    } 
+    
+    else if (text == "/type") {
       type = !type;
       String welcome;
       welcome += "Tipo de fotos: " + String(type ? "Com flash por horário\n" : "Sem flash\n");
       bot.sendMessage(chat_id, welcome, "");
       Serial.println("Mudou o tipo de foto");
-    } else if (text.startsWith("/add ")) {
+    } 
+
+    else if(text == "/detec"){
+      detec = !detec;
+      String welcome;
+      welcome += "Deteccao de Presenca: " + String(detec ? "Ativado\n" : "Desativado\n");
+      bot.sendMessage(chat_id, welcome, "");
+      Serial.println("Mudou o deteccao de presenca");
+    }
+    
+    else if (text.startsWith("/add ")) {
       String comando = text.substring(5);       // Remove o "/add "
       int indiceEspaco = comando.indexOf(' ');  // Acha onde termina o ID e começa o nome
 
@@ -466,6 +486,7 @@ void handleNewMessages(int numNewMessages) {
       welcome += "/caption: Tirar uma nova foto\n\n";
       welcome += "/clip: short video clip\n";
       welcome += "/type: Modo de tirar foto (sem flash ou com flash por horario)\n\n";
+      welcome += "/detec: Modo de detecção de presenca (Ativado / Desativado)\n\n";
       welcome += "/flash : Mudar o estado da led \n\n";
       welcome += "/list : Lista todos os usuários permitidos \n\n";
       welcome += "/time {minutos}: Muda o tempo de envio automatico de fotos (ex.: /time 10)\n\n";
@@ -519,9 +540,9 @@ void carregarUsuariosFlash() {
   // 1. Se o arquivo não existir, preenche o primeiro slot e cria o arquivo
   if (!LittleFS.exists(USER_FILE)) {
     Serial.println("Arquivo não encontrado. Criando com Master...");
-    CHAT_ID[0] = chat_id_master; 
-    Nomes[0] = "Master"; // Ou o nome que preferir
-    salvarUsuariosFlash();   // Já cria o arquivo fisicamente
+    CHAT_ID[0] = chat_id_master;
+    Nomes[0] = "Master";    // Ou o nome que preferir
+    salvarUsuariosFlash();  // Já cria o arquivo fisicamente
     return;
   }
 
@@ -580,6 +601,10 @@ void allUsers() {
     chat_id = user_id;
     int hora = getHour();
 
+    if(pirStat && detec){
+      bot.sendMessage(chat_id, "Alerta: Alguem foi detectado", "");
+    }
+
     if (type) {
       if (hora >= 6 && hora < 18) {
         // sendPhotoTelegram();
@@ -616,7 +641,7 @@ void listUsers(int tam) {
 // }
 void removeUser(String text, int tam) {
   int index = atoi(text.substring(8).c_str());
-  
+
   if (index < tam && index >= 0) {
     // Impede remover o ID 0 se ele for o único ou for o master
     if (index == 0 && CHAT_ID[index] == chat_id_master) {
@@ -626,7 +651,7 @@ void removeUser(String text, int tam) {
 
     CHAT_ID[index] = "";
     Nomes[index] = "";
-    
+
     salvarUsuariosFlash();
     bot.sendMessage(chat_id, "ID: " + String(index) + " removido", "");
   }
@@ -1575,6 +1600,8 @@ void setup() {
   Serial.printf("ESP32-CAM Video-Telegram %s\n", vernum);
   Serial.println("---------------------------------");
 
+  pinMode(pirPin, INPUT);
+
   pinMode(FLASH_LED_PIN, OUTPUT);
   digitalWrite(FLASH_LED_PIN, flashState);  //defaults to low
 
@@ -1610,9 +1637,9 @@ void setup() {
     }
   }
 
-  if(!LittleFS.begin(true)) Serial.println("Erro LittleFS");
-  
-  carregarUsuariosFlash(); // Carrega o que estiver salvo
+  if (!LittleFS.begin(true)) Serial.println("Erro LittleFS");
+
+  carregarUsuariosFlash();  // Carrega o que estiver salvo
 
   bool wifi_status = init_wifi();
 
@@ -1663,28 +1690,6 @@ void loop() {
     send_the_video();
   }
 
-  // if (millis() > Bot_lasttime + Bot_mtbs) {
-
-  //   if (WiFi.status() != WL_CONNECTED) {
-  //     Serial.println("***** WiFi reconnect *****");
-  //     WiFi.reconnect();
-  //     delay(5000);
-  //     if (WiFi.status() != WL_CONNECTED) {
-  //       Serial.println("***** WiFi rerestart *****");
-  //       init_wifi();
-  //     }
-  //   }
-
-  //   int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-
-  //   while (numNewMessages) {
-  //     //Serial.println("got response");
-  //     handleNewMessages(numNewMessages);
-  //     numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-  //   }
-  //   Bot_lasttime = millis();
-  // }
-
   if (millis() - Bot_lasttime > Bot_mtbs) {
 
     // 1. Verificação de Conexão (Sem travar o loop)
@@ -1711,6 +1716,14 @@ void loop() {
 
     // 3. Atualiza o tempo da última varredura com sucesso
     Bot_lasttime = millis();
+  }
+
+  
+  if (digitalRead(pirPin) && detec) {
+    pirStat = 1;
+    allUsers();
+    pirStat = 0;
+    delay(500);
   }
 
   if (Temp1.Saida(1) && sendTime) {
